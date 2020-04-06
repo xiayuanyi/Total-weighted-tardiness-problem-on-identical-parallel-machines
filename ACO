@@ -1,0 +1,238 @@
+from time import time
+from random import choice
+import numpy as np
+import heapq
+import matplotlib.pyplot as plt
+
+global n, m, n_ants, n_top
+
+n = 50
+m = 5
+n_ants = 30
+n_top = 10
+
+def parse_instance(filename):
+    file = open(filename,'r')
+    lines = file.readlines()
+
+    proc_times = np.zeros(n)
+    deadlines = np.zeros(n)
+    weights = np.zeros(n)
+
+    for i in range(n):
+        info = lines[i].split()
+        proc_times[i] = int(info[0])
+        deadlines[i] = int(info[1])
+        weights[i] = int(info[2])
+
+    return proc_times, deadlines, weights
+
+def part_optimize (trail_0,index1,index2,not_scheduled,weights,proc_times,deadlines):
+    trail = trail_0[:,index1:index2]
+
+    best_sol=None
+    best_eval=0
+    new_sols = []
+    new_evals = []
+
+    for k in range(n_ants):
+        new_sol = construct_from_trail(trail,not_scheduled)
+        new_eval = evaluate_tardiness(new_sol,weights,proc_times,deadlines)
+
+        if new_eval < best_eval or k == 0:
+            best_sol = new_sol
+            best_eval = new_eval
+        new_sols.append(new_sol)  # n_ants new solutions,
+        new_evals.append(new_eval)  # n_ants new total vals
+
+    trail, solutions= update_trail(trail, new_sols, new_evals)
+    return trail, best_sol, best_eval
+
+def optimize(weights,proc_times,deadlines):
+    """Main optimization procedure"""
+    trail,best_eval_sum = initialize_trail(weights,proc_times,deadlines) # 50*50
+    #trail = np.array(trail)
+    #print(trail)
+    print("Trail initialized")
+    i = 0
+    iterations = [best_eval_sum]
+
+    while i<20:
+        new_eval = np.zeros(m)
+        for a in range(7,13):
+            not_scheduled = list(range(n))
+            trail1,new_sol_0,new_eval[0] = part_optimize(trail,0,a,not_scheduled,weights,proc_times,deadlines)
+            for job in new_sol_0:
+                not_scheduled.remove(int(job))
+
+            for b in range(17,23):
+                trail2,new_sol_1,new_eval[1] = part_optimize(trail,a,b,not_scheduled,weights,proc_times,deadlines)
+                #print("new_sol_1:", new_sol_1)
+                not_scheduled1 = not_scheduled[:]
+                for job in new_sol_1:
+                    not_scheduled1.remove(job)
+                #print("not_scheduled1:", not_scheduled)
+
+                for c in range(27,33):
+                    trail3,new_sol_2,new_eval[2] = part_optimize(trail,b,c,not_scheduled1,weights,proc_times,deadlines)
+                    #print("new_sol_2:", new_sol_2)
+                    not_scheduled2 = not_scheduled1[:]
+                    for job in new_sol_2:
+                        not_scheduled2.remove(job)
+                    #print("not_scheduled2:",not_scheduled)
+
+                    for f in range(37,43):
+                        trail4, new_sol_3, new_eval[3] = part_optimize(trail, c, f, not_scheduled2,weights,proc_times,deadlines)
+                        #print("new_sol_3:", new_sol_3)
+                        not_scheduled3 = not_scheduled2[:]
+                        for job in new_sol_3:
+                            not_scheduled3.remove(job)
+                        #print("not_scheduled3:", not_scheduled)
+
+                        trail5, new_sol_4, new_eval[4] = part_optimize(trail, f, 50,not_scheduled3, weights,proc_times,deadlines)
+                        trail = np.hstack((trail1,trail2,trail3, trail4,trail5))
+                        #print("new_sol_4:", new_sol_4)
+
+                        new_eval_sum = np.sum(new_eval)
+                        if new_eval_sum< best_eval_sum:
+                            best_eval_sum = new_eval_sum
+                            best_sol = [list(new_sol_0),list(new_sol_1),list(new_sol_2),list(new_sol_3),list(new_sol_4)]
+                            #best_sol1 = list(new_sol_0)+list(new_sol_1)+list(new_sol_2)+list(new_sol_3)+list(new_sol_4)
+                            #trail = full_update(trail,best_sol1)
+
+        i += 1
+        iterations.append(best_eval_sum)
+        print( i,"Iteration(s) done")
+        print("Solution: ", best_sol)
+        print("Evaluation:", best_eval_sum)
+
+    axis = list(range(21))
+    plt.figure(figsize=(16, 4))
+    plt.title("Ant Colony Optimization")
+    plt.plot(axis, iterations, label=None, linewidth=3, color='b', marker='.',
+             markerfacecolor='blue', markersize=10)
+
+    plt.xlabel('iterations')
+    plt.ylabel('objective value')
+
+    for a, b in zip(axis, iterations):
+        plt.text(a, b, b, ha='center', va='bottom', fontsize=10)
+
+    plt.legend()
+    plt.show()
+
+    return best_sol, best_eval_sum
+
+def initial_sol(weights,proc_times,deadlines):
+    jobs_ = list(range(n))
+    jobs_.sort(key = lambda i:(deadlines[i]-proc_times[i])*(11-weights[i]))
+    # ascending order, the job with smallest key value has smallest index
+    jobs = np.zeros(n)
+    init_eval = np.empty(m)
+    for i in range(n//m):
+        for j in range(m):
+            jobs[10*j+i] = int(jobs_[j + i * m])
+    s = 0
+    for j in range(m):
+        machine = jobs[j*10:(j+1)*10]
+        init_eval[j] = evaluate_tardiness(machine,weights,proc_times,deadlines)
+        s += init_eval[j]
+
+    print("init_sol_edd:",jobs)
+    print("init_eval_edd_list:",init_eval)
+    print("init_eval_edd:",s)
+
+    return jobs,s
+
+def initialize_trail(weights,proc_times,deadlines):
+    """Trail initialization, using the same heuristic rule as the other algorithm."""
+    current_sol,current_eval_sum = initial_sol(weights,proc_times,deadlines)
+    trail = np.zeros((n,n))  #  the willingness of ants to place job i at position j
+    for i,j in enumerate(current_sol):
+        trail[int(j)][i] = 1
+    return trail,current_eval_sum
+
+def full_update(trail,solution):
+    for i in range(n):
+        trail[int(solution[i])][i] += 0.1
+    return trail
+
+def update_trail(trail, solutions, evaluations):
+    """Update the trail according to the rank-based approach: only the
+    best n_top solution are retained, and their contribution to the
+    trail update is proportional to their rank.
+    """
+    ranking = list(range(len(evaluations))) # the evaluations of sols in one trail
+    ranking.sort(key = lambda i:evaluations[i]) # ascending order
+    ranking = ranking[:n_top] # choose the first n_top evals(sols)
+    solutions = [solutions[r] for r in ranking] # 10 ordered solutions,the better the frontier
+    evaluations = [evaluations[r] for r in ranking]
+    weights_1 = [n_top - i for i in range(n_top)] # [10,9,8,7,6,5,4,3,2,1]可以是n_top=10，因为len（ranking）一定等于10
+
+    group = len(solutions[0])
+    trail_persistence = 0.5
+    trail = trail_persistence * np.array(trail)
+    for solution, evaluation, weight in zip(solutions, evaluations, weights_1):
+        for i in range(group):
+            trail[int(solution[i])][i] += weight*(5/evaluation)
+
+    return trail,solutions
+
+def construct_from_trail(trail,not_scheduled):
+    group = len(trail[0])
+    solution = np.empty(group)
+    part_schedule =not_scheduled[:]
+    for pos in range(group):
+        if len(part_schedule) == 1:
+            solution[pos] = part_schedule[0]
+            break
+        proba_val = []
+        for i in range(n):
+            if i in part_schedule:
+                 proba_val.append(trail[i][pos])
+            else:
+                proba_val.append(-10)
+        largest2 = heapq.nlargest(2, proba_val)
+        candidate = []
+        candidate1 = []
+        for item in enumerate(proba_val):
+            if item[1] == largest2[0]:
+                candidate1.append(item[0]) # priority
+            if item[1] == largest2[1]:
+                candidate.append(item[0])
+        candidate1.append(int(choice(candidate)))
+        chosen = int(choice(candidate1))
+        solution[pos] = chosen
+        part_schedule.remove(chosen)
+    return solution
+
+def evaluate_tardiness(solution,weights,proc_times,deadlines): #
+    """evaluation function of the total weighted tardiness of a solution"""
+    # iterating up to len(solution) instead of n allows to evaluate partial solutions
+    group = len(solution)
+    tardiness_list = np.zeros(group)
+    weights_list = np.zeros(group)
+    comp_time_list = np.zeros(group)
+    for i in range(group):
+        #print(solution[i])
+        weights_list[i] = weights[int(solution[i])]
+        if i == 0:
+            comp_time_list[0] = proc_times[int(solution[0])]
+            tardiness_list[0] = max(comp_time_list[0] - deadlines[int(solution[0])], 0)
+        else:
+            comp_time_list[i] = comp_time_list[i-1] + proc_times[int(solution[i])]
+            tardiness_list[i] = max(comp_time_list[i] - deadlines[int(solution[i])],0)
+
+    return np.dot(weights_list,tardiness_list)
+
+def main(filename):
+    proc_times, deadlines,weights = parse_instance(filename)
+    best_sol, best_eval = optimize(weights,proc_times,deadlines)
+
+    print("final_sol:",best_sol)
+    print("final_eval:",best_eval)
+
+start_time = time()
+main("****") # the path of data
+end_time = time()
+print("total_computation_time:", end_time - start_time)

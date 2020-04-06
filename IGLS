@@ -1,1 +1,225 @@
+import numpy as np
+from random import random
+from time import time
+import matplotlib.pyplot as plt
 
+global n, m, d
+
+n = 50 #jobs
+m = 5 #machines
+d = 3 # randomly choose d jobs and iteratively choose the best indexes positions to place them
+
+def parse_instance(filename):
+    file = open(filename,'r')
+    lines = file.readlines()
+
+    proc_times = np.zeros(n)
+    deadlines = np.zeros(n)
+    weights = np.zeros(n)
+
+    for i in range(n):
+        info = lines[i].split()
+        proc_times[i] = int(info[0])
+        deadlines[i] = int(info[1])
+        weights[i] = int(info[2])
+
+    return proc_times, deadlines, weights
+
+def initial_sol(weights,proc_times,deadlines):
+    jobs_ = list(range(n))
+    jobs_.sort(key = lambda i:(deadlines[i]-proc_times[i])*(11-weights[i]))
+    # ascending order, the job with smallest key value has smallest index
+    jobs = np.zeros(n)
+    init_eval = np.empty(m)
+    for i in range(n//m):
+        for j in range(m):
+            jobs[10*j+i] = int(jobs_[j + i * m]) # 很有可能index需要强制int
+
+    s = 0
+    machines = []
+    for j in range(m):
+        machine = jobs[j*10:(j+1)*10]
+        machines.append(machine)
+        init_eval[j] = evaluate_tardiness(machine,weights,proc_times,deadlines)
+        s += init_eval[j]
+
+    print("init_sol_edd:",machines)
+    print("init_eval_edd_list:",init_eval)
+    print("init_eval_edd:",s)
+
+    return jobs,s
+
+def insertion(array, from_pos, to_pos):
+    """Moves the element at from_pos in array, and place it before to_pos."""
+    val_from = array[from_pos]
+    if from_pos > to_pos:
+        res = np.delete(array, from_pos)
+        res = np.insert(res, to_pos, val_from)
+    else:
+        res = np.insert(array, to_pos, val_from)
+        res = np.delete(res, from_pos)
+    return res
+
+def swap(array, from_pos, to_pos):
+    """Swaps elements at from_pos and to_pos in array."""
+    res = np.copy(array)
+    res[from_pos] = array[to_pos]
+    res[to_pos] = array[from_pos]
+    return res
+
+def d_opt(current_sol,weights,proc_times,deadlines):
+    """randomly choose d=3 elements from the current sol,
+    and place them back iteratively at the best position"""
+    choose = list(range(len(current_sol)))
+    opt_index = np.random.choice(choose,d,replace = False)
+    opt_jobs = []
+    for index in opt_index:
+        opt_jobs.append(current_sol[index])
+    current_sol = np.delete(current_sol, opt_index)
+
+    # iterations to choose the best position to place these jobs back
+    for i in range(d):
+        best_sol = np.insert(current_sol, 0, opt_jobs[i])
+        best_eval = evaluate_tardiness(best_sol, weights, proc_times, deadlines)
+        for j in range(1,len(current_sol)):
+            new_sol = np.insert(current_sol,j,opt_jobs[i])
+            new_eval = evaluate_tardiness(new_sol,weights,proc_times,deadlines)
+            if new_eval < best_eval:
+                best_sol = new_sol
+                best_eval = new_eval
+
+        current_sol = best_sol
+
+    return current_sol
+
+def optimize (weights,proc_times,deadlines):
+    """Main optimization procedure."""
+
+    current_sol,current_eval_sum = initial_sol(weights,proc_times,deadlines) # 50 elements list
+    best_sol = current_sol
+    best_eval_sum = current_eval_sum
+    #print(current_sol)
+
+    i = 0
+    iterations = []
+    axis = list(range(1,21))
+    while i < 20:
+        for a in range(7,13):
+            new_sol_0 = d_opt(current_sol[:a], weights, proc_times, deadlines)
+            new_sol_0, new_eval_sum0 = local_search(new_sol_0, weights, proc_times, deadlines)
+            #print(new_sol_0, new_eval_sum0)
+
+            for b in range(17,23):
+                new_sol_1 = d_opt(current_sol[a:b], weights, proc_times, deadlines)
+                #print(current_sol[a:b])
+                new_sol_1, new_eval_sum1 = local_search(new_sol_1, weights, proc_times, deadlines)
+                new_sol_1 = np.append(new_sol_0,new_sol_1)
+                new_eval_sum1 += new_eval_sum0
+                #print(new_sol_1,new_eval_sum1)
+
+                for c in range(27,33):
+                    new_sol_2 = d_opt(current_sol[b:c], weights, proc_times, deadlines)
+                    #print(current_sol[b:c])
+                    new_sol_2, new_eval_sum2 = local_search(new_sol_2, weights, proc_times, deadlines)
+                    new_sol_2 = np.append(new_sol_1,new_sol_2)
+                    new_eval_sum2 += new_eval_sum1
+
+                    for f in range(37,43):
+                        new_sol_3 = d_opt(current_sol[c:f], weights, proc_times, deadlines)
+                        #print(current_sol[c:f])
+                        new_sol_3, new_eval_sum3 = local_search(new_sol_3, weights, proc_times, deadlines)
+                        new_sol_4 = d_opt(current_sol[f:], weights, proc_times, deadlines)
+                        new_sol_4, new_eval_sum4 = local_search(new_sol_4,weights,proc_times,deadlines)
+
+                        new_sol = np.append(new_sol_2, new_sol_3)
+                        new_sol = np.append(new_sol,new_sol_4)
+                        new_eval_sum = new_eval_sum2 + new_eval_sum3 +new_eval_sum4
+
+                        if new_eval_sum < current_eval_sum:
+                            current_sol = new_sol
+                            current_eval_sum = new_eval_sum
+                            if new_eval_sum < best_eval_sum:
+                                best_sol = new_sol
+                                best_eval_index = [a,b,c,f]
+                                best_eval_sum = new_eval_sum
+        i += 1
+        iterations.append(best_eval_sum)
+        print("the %d th iteration has been done." %i)
+        #print("best index:",best_eval_index)
+        print("local_Evaluation:" , best_eval_sum )
+        #print("computational time:", time() - start_time)
+
+    plt.figure(figsize=(16,4))
+    plt.title("Iterated greedy random local search")
+    plt.plot(axis,iterations,label=None, linewidth=3, color='b', marker='.',
+         markerfacecolor='blue', markersize=10)
+
+    plt.xlabel('iterations')
+    plt.ylabel('objective value')
+
+    for a, b in zip(axis, iterations):
+        plt.text(a, b, b, ha='center', va='bottom', fontsize=10)
+
+    plt.legend()
+    plt.show()
+
+    return best_sol,best_eval_sum,best_eval_index
+
+def local_search(current_sol,weights,proc_times,deadlines):
+    """Local search on the current solution: with probability 0.5, swap to
+        random jobs. Otherwise, move a random job at a random position. Repeat
+        until no improvement is made for 10 iterations.
+    """
+    k = 1
+    current_eval = evaluate_tardiness(current_sol,weights,proc_times,deadlines)
+
+    while k <= 10:
+        choose = list(range(len(current_sol)))
+        (pos_1, pos_2) = np.random.choice(choose, 2, replace = False)
+        if random() < 0.5:
+            new_sol = insertion(current_sol, pos_1, pos_2)
+        else:
+            new_sol = swap(current_sol, pos_1, pos_2)
+        new_eval = evaluate_tardiness(new_sol,weights,proc_times,deadlines)
+
+        if new_eval < current_eval:
+            current_sol = new_sol
+            current_eval = new_eval
+            k = 1
+        else:
+            k += 1
+
+    return current_sol, current_eval
+
+def evaluate_tardiness(solution,weights,proc_times,deadlines): #
+    """evaluation function of the total weighted tardiness of a solution"""
+    # iterating up to len(solution) to evaluate tardiness of jobs on 1 machine
+    group = len(solution)
+    tardiness_list = np.zeros(group)
+    weights_list = np.zeros(group)
+    comp_time_list = np.zeros(group)
+    for i in range(group):
+        weights_list[i] = weights[int(solution[i])]
+        if i == 0:
+            comp_time_list[0] = proc_times[int(solution[0])]
+            tardiness_list[0] = max(comp_time_list[0] - deadlines[int(solution[0])], 0)
+        else:
+            comp_time_list[i] = comp_time_list[i-1] + proc_times[int(solution[i])]
+            tardiness_list[i] = max(comp_time_list[i] - deadlines[int(solution[i])],0)
+
+    return np.dot(weights_list,tardiness_list)
+
+def main(filename):
+    proc_times, deadlines,weights = parse_instance(filename)
+    #print(proc_times, deadlines,weights)
+    best_sol,best_eval_sum,best_eval_index = optimize(weights,proc_times,deadlines)
+
+    print("final_sol:",best_sol)
+    #print("final_eval_list:",best_eval)
+    print("final_eval:", best_eval_sum)
+    print("final_index",best_eval_index)
+
+start_time = time()
+main("C:\\Users\\xiayuanyi\\Desktop\\DATA.txt")
+end_time = time()
+print("total_computation_time:", end_time - start_time)
